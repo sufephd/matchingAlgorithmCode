@@ -1,0 +1,10 @@
+*.[oa]
+*~
+*.hi
+*.bbl
+*.aux
+*.blg
+*.dvi
+*.log
+*.gz
+*.out
