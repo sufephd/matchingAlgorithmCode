@@ -1,9 +1,11 @@
+{-# LANGUAGE StrictData #-}
 import Control.Monad
 import Data.Function (on)
 import Data.List (delete, find, findIndex, insert, nub, sortBy, union, zipWith4, (\\))
 import qualified Data.Set as S
 import System.IO
 import System.Random
+import Data.Maybe
 
 newtype Pid a = Pid {pi :: a} deriving (Eq, Show, Ord)
 newtype Aid a = Aid {ai :: a} deriving (Eq, Show, Ord)
@@ -35,7 +37,7 @@ sortByKeys :: (Ord a) => [a] -> [a] -> [a]
 sortByKeys keys =
     sortBy
         ( compare
-            `on` (\x -> if x == Nothing then Just maxBound else x)
+            `on` (\x -> if isNothing x then Just maxBound else x)
                 . flip lookup (zip keys [0 :: Int ..])
         )
 
@@ -50,7 +52,7 @@ hasactions (ps, as) =
                 (Right . aid)
                 ( S.filter
                     ( \x ->
-                        S.size (enrol x) > quota x
+                        S.size (enrol x) > quota x || not (null (S.toList (enrol x) \\ prio x))
                     )
                     as
                 )
@@ -118,15 +120,15 @@ stable (mso, wso) ws' =
                 any
                     ( \wm ->
                         let thew = (\(Just a) -> a) (find (\x -> aid x == fst wm) ws)
-                         in pid m `elem` take (quota thew) (sortByKeys (prio thew) (pid m : (S.toList $ snd wm)))
+                         in pid m `elem` take (quota thew) (sortByKeys (prio thew) (pid m : S.toList (snd wm)))
                     )
-                    (filter (\x -> fst x `elem` (takeWhile (/= aid w) (pref m))) (S.toList ws'))
+                    (filter (\x -> fst x `elem` takeWhile (/= aid w) (pref m)) (S.toList ws'))
             return 1
         )
         && null
-            [ 1 | m <- ms, pid m `notElem` (S.unions (S.map snd ws')), any
+            [ 1 | m <- ms, pid m `notElem` S.unions (S.map snd ws'), any
                                                                         (\wm -> pid m `elem` take (quota wm) (sortByKeys (prio wm) (S.toList (pid m `S.insert` toPids (lookup (aid wm) (S.toList ws'))))))
-                                                                        (filter (\x -> aid x `elem` (pref m)) ws)
+                                                                        (filter (\x -> aid x `elem` pref m) ws)
             ]
   where
     ms = S.toList mso
@@ -197,7 +199,7 @@ main = do
     let result = effiDA (ps, as) -- head results
     let matching = getMatching result
     putStrLn "Men proposing DA produce the following matching:"
-    print result
+    print matching
     -- putStrLn "How many free-style Da algorithms are there?"
     -- print (length results)
     -- putStrLn "Does all the outcomes equal?"
