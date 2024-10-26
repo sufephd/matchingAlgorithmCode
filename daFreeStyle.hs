@@ -217,12 +217,12 @@ main = do
   -- let stablematches = filter (stable (ms, ws)) allmatches
   -- let results = deferAccepts (ms,ws)
   let (ps, as) = (S.fromList ms, S.fromList ws)
-  let results = deferAccepts (ps, as) -- head results
-  let result = head (S.toList results)
-  putStrLn "How many different matching outcomes are produced by all the free-style DA algorithms?"
-  print (S.size results)
-  -- putStrLn "Are the matching outcomes for them identical?"
-  -- print (all ( == result) results)
+  let results = deferAcceptMonad (ps, as) -- head results
+  let result = head results
+  putStrLn "How many free-style DA algorithms are there?"
+  print (length results)
+  putStrLn "Are the matching outcomes for them identical?"
+  print (all ( == result) results)
   let matching = getMatching result
   putStrLn "DA produce the following matching:"
   print matching
