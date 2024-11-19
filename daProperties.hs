@@ -1,4 +1,4 @@
-{-# LANGUAGE StrictData #-}
+{-# LANGUAGE Strict #-}
 
 import Control.Monad
 import Data.Function (on)

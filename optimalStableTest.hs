@@ -1,35 +1,52 @@
 {-# LANGUAGE Strict #-}
+
 import Control.Monad
-import Data.List
+import Data.Function (on)
+import Data.List (delete, find, findIndex, insert, nub, sortBy, union, zipWith4, (\\))
 import Data.Maybe
 import qualified Data.Set as S
 import System.IO
 import System.Random
-import Data.Function (on)
 
-newtype Pid = Pid {pi :: Int} deriving (Eq, Show, Ord)
-newtype Aid = Aid {ai :: Int} deriving (Eq, Show, Ord)
-type Preference = [Aid]
-type Priority = [Pid]
-data Proposer = P {pid :: !Pid, pref :: !Preference}
+newtype Pid a = Pid {pi :: a} deriving (Eq, Show, Ord)
+
+newtype Aid a = Aid {ai :: a} deriving (Eq, Show, Ord)
+
+data Proposer = P {pid :: Pid Int, pref :: [Aid Int]}
   deriving (Eq, Show, Ord)
+
 data Accepter = A
-  { aid :: !Aid,
-    prio :: !Priority,
-    quota :: !Int,
-    enrol :: !(S.Set Pid)
+  { aid :: Aid Int,
+    prio :: [Pid Int],
+    quota :: Int,
+    enrol :: S.Set (Pid Int)
   }
   deriving (Eq, Show, Ord)
-type Matching = S.Set (Aid, S.Set Pid)
+
+type Matching = S.Set (Aid Int, S.Set (Pid Int))
+
 type Market = (S.Set Proposer, S.Set Accepter)
-type Action = Either Pid Aid 
 
+type Action = Either (Pid Int) (Aid Int)
 
-sortByPrio ::Priority -> [Pid] -> [Pid]
-sortByPrio prio proposers=
+-- newtype Set a = Set {originList :: [a]}
+
+-- instance Functor Set where
+
+--   fmap  f  (Set xs) = Set (map f (nub xs))
+
+-- instance Ord (Maybe (Pid Int)) where
+--    _ <= Nothing = True
+--    Nothing <= Just _ = False
+--    Just x <= Just y = x <= y
+
+sortByKeys :: (Ord a) => [a] -> [a] -> [a]
+sortByKeys keys =
   sortBy
-    (compare `on` flip elemIndex prio)
-    (proposers `intersect` prio)
+    ( compare
+        `on` (\x -> if isNothing x then Just maxBound else x)
+          . flip lookup (zip keys [0 :: Int ..])
+    )
 
 getMatching :: Market -> Matching
 getMatching (_, ws) = S.map (\w -> (aid w, enrol w)) ws
@@ -69,9 +86,11 @@ dispatch (ps, as) (Right a) =
           { enrol =
               S.fromList $
                 take
-                  (quota rejector)                 
-                      (sortByPrio (prio rejector) (S.toList (enrol rejector)))
-                  
+                  (quota rejector)
+                  ( takeWhile
+                      (`elem` prio rejector)
+                      (sortByKeys (prio rejector) (S.toList (enrol rejector)))
+                  )
           }
    in (ps, S.insert newrejector (S.delete rejector as))
 deferAcceptMonad :: Market -> [Market]
@@ -88,10 +107,9 @@ deferAccepts :: Market -> S.Set Market
 deferAccepts m =
   let actions = hasactions m
    in if not (null actions)
-        then S.unions $ S.map deferAccepts (S.unions (S.map (setify . (dispatch m)) actions))
-        else setify m
-  where
-    setify m = S.insert m S.empty
+        then S.unions $ S.map deferAccepts (S.unions (S.map (S.singleton . (dispatch m)) actions))
+        else S.singleton m
+
 
 effiDA :: Market -> Market
 effiDA m =
@@ -130,7 +148,7 @@ stable (mso, wso) matching =
     toPids (Just a) = a
     block m w matching =
       pid m `elem` prio w
-        && pid m `elem` take (quota w) (sortByPrio (prio w) (pid m : S.toList (toPids (lookup (aid w) (S.toList matching)))))
+        && pid m `elem` take (quota w) (sortByKeys (prio w) (pid m : S.toList (toPids (lookup (aid w) (S.toList matching)))))
 
 randomPref :: (RandomGen p) => Int -> Int -> p -> [[Int]]
 randomPref m w gen =
@@ -141,7 +159,45 @@ randomPref m w gen =
       let (mpref, remaining) = splitAt w ws
        in nub mpref : helper w remaining
 
+-- main :: IO ()
+-- main = do
+--   --print (sortByKeys [6, 4, 8, 9,3,2,1] [1 .. 10])
+--     print result
+--     print (length results)
+--     print (all ( == result) results)
+allMatching :: Market -> [Matching]
+allMatching (ms, ws) = if null ms
+                        then return (getMatching (ms, ws))
+                        else  do
+                         m <- S.toList ms
+                         w <- S.toList ws
+                         if all (\w -> (length . enrol) w + 1 > quota w) ws
+                           then return (getMatching (ms, ws))
+                           else do
+                            guard ((length . enrol) w + 1 <= quota w)
+                            let ms'= S.delete m ms
+                            let ws'= S.insert (w{enrol = S.insert (pid m) (enrol w)}) (S.delete w ws)
+                            allMatching (ms',ws')
 
+proposerBetter :: Market -> Matching -> Matching -> Bool
+proposerBetter (ps,as) m1 m2 = null [1| (a, ps) <- m, p <- S.toList ps, (a', ps') <- m', p' <- S.toList ps',
+                             p == p', if isNothing (findIndex (==a) (pidpref p))
+                                      then not $ isNothing (findIndex (==a') (pidpref p))
+                                      else findIndex (==a) (pidpref p) < findIndex (==a') (pidpref p)]
+
+  where m = S.toList m1
+        m'= S.toList m2
+        
+        pidpref p = pref (head (filter ( \x -> pid x == p) (S.toList ps)))
+--proposerBetter (ms, ws) (_, ws') = null [1 | m <- ms, pid m `notElem` (foldr union [] (map enrol ws)), pid m `elem` (foldr union [] (map enrol ws'))]
+--                                        &&
+--                                    null [1 | m <- ms, w <- ws, pid m `elem` (enrol . head) (filter (\x -> aid x == aid w) ws),
+--                                          w' <- ws', pid m `elem` (enrol . head) (filter (\x -> aid x == aid w') ws'),
+--                                          findIndex (==aid w') (pref m) < findIndex (==aid w) (pref m)]
+
+proposerOptimal :: Market -> Matching -> S.Set Matching -> Bool
+proposerOptimal (ps,as) m = all (proposerBetter (ps, as) m)
+-- main :: IO ()
 main = do
   
   putStrLn "Please tell how many proposers are there?"
@@ -165,33 +221,32 @@ main = do
   print ms
   putStrLn "Acceptors have the following priorities for proposers and their quotas given randomly by our program:"
   print ws
-  -- let allmatches = allMatching (ms, ws)
-  -- let stablematches = filter (stable (ms, ws)) allmatches
+ 
+ 
   -- let results = deferAccepts (ms,ws)
   let (ps, as) = (S.fromList ms, S.fromList ws)
-  let results = deferAcceptMonad (ps, as) -- head results
-  let result = head results
-  putStrLn "How many free-style DA algorithms are there?"
-  print (length results)
-  putStrLn "Are the matching outcomes for them identical?"
-  print (all ( == result) results)
+  let result = effiDA (ps, as) -- head results  
   let matching = getMatching result
   putStrLn "DA produce the following matching:"
   print matching
+  putStrLn "Is it stable? "
+  print (stable (ps, as) matching)
+  let allmatches = allMatching (ps, as)
+  let stablematches = filter (stable (ps, as)) allmatches
+  
   -- putStrLn "How many free-style Da algorithms are there?"
   -- print (length results)
   -- putStrLn "Does all the outcomes equal?"
   -- print (all ( == result) results)
-  putStrLn "Is it stable? "
-  print (stable (ps, as) matching)
+  
 
 -- print (stable (ms,ws) result)
--- putStrLn "The number of all possible matchings are :"
--- print $ length allmatches
+  putStrLn "The number of all possible matchings are :"
+  print $ length allmatches
 -- putStrLn "The number of all possible stable matchings are :"
 -- print $ length stablematches
--- putStrLn "Is DA outcome proposer-optimal stable matching :"
--- print $ proposerOptimal result stablematches
+  putStrLn "Is DA outcome proposer-optimal stable matching :"
+  print $ proposerOptimal (ps, as) matching (S.fromList stablematches)
 -- putStrLn "Women proposing DA produce the following matching:"
 -- print wpDA
 -- putStrLn "Is it stable? "

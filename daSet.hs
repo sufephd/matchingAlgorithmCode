@@ -1,5 +1,4 @@
-{-# LANGUAGE StrictData #-}
-
+{-# LANGUAGE Strict #-}
 import Control.Monad
 import Data.Function (on)
 import Data.List (delete, find, findIndex, insert, nub, sortBy, union, zipWith4, (\\))
@@ -105,9 +104,10 @@ deferAcceptMonad m =
 
 deferAccepts :: Market -> S.Set Market
 deferAccepts m =
-  let actions = hasactions m
+  let actions =  m `seq` hasactions m
    in if not (null actions)
-        then S.unions $ S.map deferAccepts (S.unions (S.map (setify . (dispatch m)) actions))
+        then
+        S.unions $ S.map deferAccepts (S.unions (S.map (setify . (dispatch m)) actions))
         else setify m
   where
     setify m = S.insert m S.empty
