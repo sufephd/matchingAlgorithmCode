@@ -107,7 +107,7 @@ deferAccepts :: Market -> S.Set Market
 deferAccepts m =
   let actions = hasactions m
    in if not (null actions)
-        then S.unions $ S.map deferAccepts (S.unions (S.map (setify . (dispatch m)) actions))
+        then S.unions $ S.map deferAccepts (S.unions (S.map (setify . dispatch m) actions))
         else setify m
   where
     setify m = S.insert m S.empty
